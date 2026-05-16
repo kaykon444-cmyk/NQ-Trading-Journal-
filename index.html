@@ -257,6 +257,43 @@ select.form-input option{background:#111;}
 /* Chart */
 .chart-wrap{position:relative;height:160px;}
 .chart-wrap-tall{position:relative;height:200px;}
+
+/* Screenshot */
+.upload-zone{
+  border:1px dashed var(--border);border-radius:var(--radius-sm);
+  padding:22px;text-align:center;color:var(--muted);cursor:pointer;
+  transition:border-color .15s;background:var(--surface2);
+}
+.upload-zone:active{border-color:#444;}
+.upload-zone i{font-size:26px;display:block;margin-bottom:6px;}
+.upload-zone span{font-size:13px;}
+.screenshot-preview{
+  position:relative;border-radius:var(--radius-sm);overflow:hidden;
+  border:1px solid var(--border);
+}
+.screenshot-preview img{width:100%;display:block;max-height:220px;object-fit:cover;}
+.screenshot-remove{
+  position:absolute;top:8px;right:8px;
+  background:rgba(0,0,0,0.75);border:none;color:#fff;
+  width:28px;height:28px;border-radius:50%;cursor:pointer;
+  display:flex;align-items:center;justify-content:center;font-size:14px;
+}
+.trade-screenshot{width:100%;display:block;max-height:180px;object-fit:cover;border-bottom:1px solid var(--border);}
+.screenshot-thumb-wrap{cursor:pointer;}
+/* Full screen image viewer */
+.img-viewer{
+  position:fixed;inset:0;background:rgba(0,0,0,0.95);
+  display:flex;align-items:center;justify-content:center;
+  z-index:500;opacity:0;pointer-events:none;transition:opacity .2s;
+}
+.img-viewer.open{opacity:1;pointer-events:all;}
+.img-viewer img{max-width:100%;max-height:100%;object-fit:contain;}
+.img-viewer-close{
+  position:absolute;top:16px;right:16px;
+  background:rgba(255,255,255,0.1);border:none;color:#fff;
+  width:36px;height:36px;border-radius:50%;cursor:pointer;
+  font-size:18px;display:flex;align-items:center;justify-content:center;
+}
 </style>
 </head>
 <body>
@@ -498,6 +535,20 @@ select.form-input option{background:#111;}
         </div>
       </div>
 
+      <!-- Screenshot -->
+      <div class="form-group">
+        <label class="form-label">Chart Screenshot</label>
+        <div id="upload-zone" class="upload-zone" onclick="document.getElementById('f-screenshot').click()">
+          <i class="ti ti-camera"></i>
+          <span>Tap to upload or take photo</span>
+        </div>
+        <input type="file" id="f-screenshot" accept="image/*" capture="environment" style="display:none" onchange="handleScreenshot(this)">
+        <div id="screenshot-preview-wrap" style="display:none;margin-top:8px" class="screenshot-preview">
+          <img id="screenshot-preview-img" src="" alt="Chart screenshot">
+          <button class="screenshot-remove" onclick="removeScreenshot()"><i class="ti ti-x"></i></button>
+        </div>
+      </div>
+
       <button class="btn-primary" id="save-btn" onclick="saveTrade()">
         <i class="ti ti-device-floppy"></i> <span id="save-btn-text">Save Trade</span>
       </button>
@@ -609,6 +660,12 @@ select.form-input option{background:#111;}
   </div>
 </div>
 
+<!-- Image viewer -->
+<div class="img-viewer" id="img-viewer" onclick="closeImgViewer()">
+  <img id="img-viewer-src" src="" alt="Chart screenshot fullscreen">
+  <button class="img-viewer-close" onclick="closeImgViewer()"><i class="ti ti-x"></i></button>
+</div>
+
 <script>
 // ── Constants ──
 const NQ_POINT_VALUE = 20; // $20 per point per contract
@@ -620,6 +677,7 @@ let selectedTags = [];
 let activeFilter = 'all';
 let editingId = null;
 let analyticsCharts = {};
+let pendingScreenshot = null;
 
 // ── Navigation ──
 const PAGES = ['dashboard','log','add','analytics','settings'];
@@ -699,6 +757,37 @@ function resetForm() {
   selectedTags = [];
   document.querySelectorAll('.tag').forEach(t=>t.classList.remove('selected'));
   ['c-pts','c-gross','c-net','c-rr'].forEach(id=>{const e=document.getElementById(id);e.textContent='—';e.style.color='var(--muted)';});
+  removeScreenshot();
+}
+
+// ── Screenshot ──
+function handleScreenshot(input) {
+  const file = input.files[0];
+  if(!file) return;
+  const reader = new FileReader();
+  reader.onload = e => {
+    pendingScreenshot = e.target.result;
+    document.getElementById('upload-zone').style.display = 'none';
+    document.getElementById('screenshot-preview-wrap').style.display = 'block';
+    document.getElementById('screenshot-preview-img').src = pendingScreenshot;
+  };
+  reader.readAsDataURL(file);
+  input.value='';
+}
+
+function removeScreenshot() {
+  pendingScreenshot = null;
+  document.getElementById('upload-zone').style.display = 'block';
+  document.getElementById('screenshot-preview-wrap').style.display = 'none';
+  document.getElementById('screenshot-preview-img').src = '';
+}
+
+function openImgViewer(src) {
+  document.getElementById('img-viewer-src').src = src;
+  document.getElementById('img-viewer').classList.add('open');
+}
+function closeImgViewer() {
+  document.getElementById('img-viewer').classList.remove('open');
 }
 
 function saveTrade() {
@@ -736,6 +825,7 @@ function saveTrade() {
     session,
     notes,
     tags:        [...selectedTags],
+    screenshot:  pendingScreenshot || (editingId ? (trades.find(x=>x.id===editingId)||{}).screenshot||null : null),
     reviewed:    editingId ? (trades.find(x=>x.id===editingId)||{}).reviewed||false : false,
     createdAt:   editingId ? (trades.find(x=>x.id===editingId)||{}).createdAt||Date.now() : Date.now()
   };
@@ -841,6 +931,7 @@ function makeTradeCard(t, showEdit=true) {
   div.className='trade-card';
   const isWin=t.pnl>=0;
   div.innerHTML=`
+    ${t.screenshot?`<div class="screenshot-thumb-wrap" onclick="openImgViewer('${t.screenshot.replace(/'/g,"\\'")}')"><img class="trade-screenshot" src="${t.screenshot}" alt="Chart screenshot"></div>`:''}
     <div class="trade-card-top">
       <div>
         <div class="trade-instrument">NQ · ${t.contracts} contract${t.contracts!==1?'s':''}</div>
@@ -916,6 +1007,15 @@ function editTrade(id) {
     if(selectedTags.includes(el.textContent.trim())) el.classList.add('selected');
     else el.classList.remove('selected');
   });
+  // Load existing screenshot
+  if(t.screenshot) {
+    pendingScreenshot = t.screenshot;
+    document.getElementById('upload-zone').style.display='none';
+    document.getElementById('screenshot-preview-wrap').style.display='block';
+    document.getElementById('screenshot-preview-img').src=t.screenshot;
+  } else {
+    removeScreenshot();
+  }
   calc();
 }
 
